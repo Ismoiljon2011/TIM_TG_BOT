@@ -42,32 +42,140 @@ async function sendTelegramMessage(chat_id: number, text: string, token: string)
   });
 }
 
+async function createSession(
+  supabase: any,
+  user_id: string,
+  telegram_id: number,
+  state: string = "idle"
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("user_sessions")
+      .upsert(
+        {
+          user_id,
+          telegram_id,
+          session_state: state,
+          last_activity: new Date().toISOString(),
+        },
+        { onConflict: "telegram_id" }
+      );
+
+    if (error) {
+      console.error("Session error:", error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error creating session:", error);
+    return false;
+  }
+}
+
+async function getSession(
+  supabase: any,
+  telegram_id: number
+): Promise<any | null> {
+  try {
+    const { data, error } = await supabase
+      .from("user_sessions")
+      .select("*")
+      .eq("telegram_id", telegram_id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Get session error:", error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error("Error getting session:", error);
+    return null;
+  }
+}
+
 async function registerUser(
   supabase: any,
   telegram_id: number,
-  username: string,
-  first_name: string
-): Promise<boolean> {
+  username: string
+): Promise<{ id: string } | null> {
   try {
     const userData = {
       username: username || `user_${telegram_id}`,
-      password_hash: `telegram_${telegram_id}`,
+      password_hash: `pass_${Math.random().toString(36).substring(2, 15)}`,
       is_admin: false,
     };
 
     const { data, error } = await supabase
       .from("users")
       .insert([userData])
-      .select();
+      .select("id");
 
     if (error) {
       console.error("Registration error:", error);
+      return null;
+    }
+
+    if (!data || data.length === 0) {
+      return null;
+    }
+
+    return data[0];
+  } catch (error) {
+    console.error("Error registering user:", error);
+    return null;
+  }
+}
+
+async function authenticateUser(
+  supabase: any,
+  username: string,
+  password: string
+): Promise<{ id: string; username: string } | null> {
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, username, password_hash")
+      .eq("username", username)
+      .maybeSingle();
+
+    if (error || !data) {
+      console.error("Auth error:", error);
+      return null;
+    }
+
+    if (data.password_hash === password) {
+      return { id: data.id, username: data.username };
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Error authenticating:", error);
+    return null;
+  }
+}
+
+async function updatePassword(
+  supabase: any,
+  user_id: string,
+  new_password: string
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("users")
+      .update({ password_hash: new_password })
+      .eq("id", user_id);
+
+    if (error) {
+      console.error("Password update error:", error);
       return false;
     }
 
-    return !!data && data.length > 0;
+    return true;
   } catch (error) {
-    console.error("Error registering user:", error);
+    console.error("Error updating password:", error);
     return false;
   }
 }
@@ -142,42 +250,205 @@ Deno.serve(async (req: Request) => {
       const first_name = message.from.first_name;
 
       if (text === "/start") {
-        const exists = await checkUserExists(supabase, username);
+        const session = await getSession(supabase, message.from.id);
 
-        if (exists) {
+        if (session && session.user_id) {
+          const { data: user } = await supabase
+            .from("users")
+            .select("username")
+            .eq("id", session.user_id)
+            .maybeSingle();
+
+          const menu = `Salom ${first_name}!
+Foydalanuvchi nomi: <b>${user?.username}</b>
+
+<b>Menyular:</b>
+/login - Login qilish
+/password - Parolni o'zgartirish
+/profile - Profilni ko'rish`;
+
+          await sendTelegramMessage(chat_id, menu, TELEGRAM_TOKEN);
+        } else {
+          await createSession(supabase, null, message.from.id, "awaiting_registration");
+
           await sendTelegramMessage(
             chat_id,
-            `Salom ${first_name}! Siz allaqachon ro'yxatdan o'tkansiz. Platforma: <a href="https://example.com">Test Platformasi</a>`,
+            `Salom ${first_name}! Birinchi bo'lib ro'yxatdan o'tishingiz kerak.\n\nFoydalanuvchi nomini kiriting:`,
+            TELEGRAM_TOKEN
+          );
+        }
+      } else if (text === "/login") {
+        const session = await getSession(supabase, message.from.id);
+
+        if (session?.session_state === "awaiting_login_username") {
+          await sendTelegramMessage(
+            chat_id,
+            `Parolni kiriting:`,
             TELEGRAM_TOKEN
           );
         } else {
-          const registered = await registerUser(
-            supabase,
-            message.from.id,
-            username,
-            first_name
-          );
+          await createSession(supabase, session?.user_id, message.from.id, "awaiting_login_username");
 
-          if (registered) {
+          await sendTelegramMessage(
+            chat_id,
+            `Foydalanuvchi nomini kiriting:`,
+            TELEGRAM_TOKEN
+          );
+        }
+      } else if (text === "/password") {
+        const session = await getSession(supabase, message.from.id);
+
+        if (!session?.user_id) {
+          await sendTelegramMessage(
+            chat_id,
+            `Avval /login orqali kirish kerak.`,
+            TELEGRAM_TOKEN
+          );
+        } else {
+          await createSession(supabase, session.user_id, message.from.id, "awaiting_old_password");
+
+          await sendTelegramMessage(
+            chat_id,
+            `Eski parolni kiriting:`,
+            TELEGRAM_TOKEN
+          );
+        }
+      } else if (text === "/profile") {
+        const session = await getSession(supabase, message.from.id);
+
+        if (session?.user_id) {
+          const { data: user } = await supabase
+            .from("users")
+            .select("username, created_at")
+            .eq("id", session.user_id)
+            .maybeSingle();
+
+          if (user) {
             await sendTelegramMessage(
               chat_id,
-              `Salom ${first_name}! Siz ro'yxatdan muvaffaqiyatli o'tdingiz!\n\nFoydalanuvchi nomi: ${username}\nParol: telegram_${message.from.id}\n\nPlatformaga kiring: <a href="https://example.com">Test Platformasi</a>`,
+              `<b>Profil Ma'lumotlari</b>\n\nFoydalanuvchi nomi: <b>${user.username}</b>\nQo'shilgan sana: ${new Date(user.created_at).toLocaleDateString('uz-UZ')}`,
+              TELEGRAM_TOKEN
+            );
+          }
+        } else {
+          await sendTelegramMessage(
+            chat_id,
+            `Avval /login orqali kirish kerak.`,
+            TELEGRAM_TOKEN
+          );
+        }
+      } else {
+        const session = await getSession(supabase, message.from.id);
+
+        if (!session) {
+          await createSession(supabase, null, message.from.id, "awaiting_registration");
+          await sendTelegramMessage(
+            chat_id,
+            `Foydalanuvchi nomini kiriting:`,
+            TELEGRAM_TOKEN
+          );
+        } else if (session.session_state === "awaiting_registration") {
+          const registered = await registerUser(supabase, message.from.id, text);
+
+          if (registered) {
+            await createSession(supabase, registered.id, message.from.id, "idle");
+
+            const { data: user } = await supabase
+              .from("users")
+              .select("password_hash")
+              .eq("id", registered.id)
+              .maybeSingle();
+
+            await sendTelegramMessage(
+              chat_id,
+              `Salom ${first_name}! Ro'yxatdan muvaffaqiyatli o'tdingiz!\n\nFoydalanuvchi nomi: <b>${text}</b>\nParol: <b>${user?.password_hash}</b>\n\n/login - Login qilish\n/password - Parolni o'zgartirish`,
               TELEGRAM_TOKEN
             );
           } else {
             await sendTelegramMessage(
               chat_id,
-              `Kechirasiz, ro'yxatdan o'tishda xatolik yuz berdi. Iltimos keyinroq urinib ko'ring.`,
+              `Kechirasiz, xatolik yuz berdi. Boshqa foydalanuvchi nomi kiriting:`,
               TELEGRAM_TOKEN
             );
           }
+        } else if (session.session_state === "awaiting_login_username") {
+          await createSession(supabase, session.user_id, message.from.id, "awaiting_login_password");
+
+          const userData = { username: text };
+          await sendTelegramMessage(
+            chat_id,
+            `Parolni kiriting:`,
+            TELEGRAM_TOKEN
+          );
+        } else if (session.session_state === "awaiting_login_password") {
+          const auth = await authenticateUser(supabase, session.awaiting_username || text, text);
+
+          if (auth) {
+            await createSession(supabase, auth.id, message.from.id, "idle");
+
+            await sendTelegramMessage(
+              chat_id,
+              `Salom! Muvaffaqiyatli kirdingiz.\n\n/login - Login qilish\n/password - Parolni o'zgartirish\n/profile - Profil`,
+              TELEGRAM_TOKEN
+            );
+          } else {
+            await sendTelegramMessage(
+              chat_id,
+              `Foydalanuvchi nomi yoki parol noto'g'ri. Qayta urinib ko'ring: /login`,
+              TELEGRAM_TOKEN
+            );
+
+            await createSession(supabase, session.user_id, message.from.id, "idle");
+          }
+        } else if (session.session_state === "awaiting_old_password") {
+          const { data: user } = await supabase
+            .from("users")
+            .select("password_hash")
+            .eq("id", session.user_id)
+            .maybeSingle();
+
+          if (user?.password_hash === text) {
+            await createSession(supabase, session.user_id, message.from.id, "awaiting_new_password");
+
+            await sendTelegramMessage(
+              chat_id,
+              `Yangi parolni kiriting:`,
+              TELEGRAM_TOKEN
+            );
+          } else {
+            await sendTelegramMessage(
+              chat_id,
+              `Parol noto'g'ri. Qayta urinib ko'ring: /password`,
+              TELEGRAM_TOKEN
+            );
+
+            await createSession(supabase, session.user_id, message.from.id, "idle");
+          }
+        } else if (session.session_state === "awaiting_new_password") {
+          const updated = await updatePassword(supabase, session.user_id, text);
+
+          if (updated) {
+            await createSession(supabase, session.user_id, message.from.id, "idle");
+
+            await sendTelegramMessage(
+              chat_id,
+              `Parol muvaffaqiyatli o'zgartirildi! Yangi parol: <b>${text}</b>`,
+              TELEGRAM_TOKEN
+            );
+          } else {
+            await sendTelegramMessage(
+              chat_id,
+              `Xatolik yuz berdi. Qayta urinib ko'ring: /password`,
+              TELEGRAM_TOKEN
+            );
+          }
+        } else {
+          await sendTelegramMessage(
+            chat_id,
+            `Qabul qilaman!\n\n/login - Login qilish\n/password - Parolni o'zgartirish\n/profile - Profil`,
+            TELEGRAM_TOKEN
+          );
         }
-      } else {
-        await sendTelegramMessage(
-          chat_id,
-          `Qabul qilaman! Ro'yxatdan o'tish uchun /start komandasini kirgizing.`,
-          TELEGRAM_TOKEN
-        );
       }
 
       return new Response(
