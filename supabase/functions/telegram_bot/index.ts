@@ -145,18 +145,26 @@ async function registerUser(
   supabase: any,
   telegram_id: number,
   username: string
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; username: string; password_hash: string } | null> {
   try {
+    const existingUser = await findUserByUsername(supabase, username);
+    if (existingUser) {
+      console.error("Username already exists");
+      return null;
+    }
+
+    const password = `pass_${Math.random().toString(36).substring(2, 15)}`;
     const userData = {
-      username: username || `user_${telegram_id}`,
-      password_hash: `pass_${Math.random().toString(36).substring(2, 15)}`,
+      username,
+      password_hash: password,
       is_admin: false,
+      telegram_id,
     };
 
     const { data, error } = await supabase
       .from("users")
       .insert([userData])
-      .select("id");
+      .select("id, username, password_hash");
 
     if (error) {
       console.error("Registration error:", error);
@@ -387,13 +395,22 @@ Foydalanuvchi nomi: <b>${user?.username}</b>
         const session = await getSession(supabase, message.from.id);
 
         if (session?.user_id) {
-          await createSession(supabase, session.user_id, message.from.id, "awaiting_forgot_username");
+          const newPassword = `pass_${Math.random().toString(36).substring(2, 15)}`;
+          const updated = await updatePassword(supabase, session.user_id, newPassword);
 
-          await sendTelegramMessage(
-            chat_id,
-            `Foydalanuvchi nomini kiriting:`,
-            TELEGRAM_TOKEN
-          );
+          if (updated) {
+            await sendTelegramMessage(
+              chat_id,
+              `Parol muvaffaqiyatli yangilandi!\n\nYangi parol: <b>${newPassword}</b>`,
+              TELEGRAM_TOKEN
+            );
+          } else {
+            await sendTelegramMessage(
+              chat_id,
+              `Xatolik yuz berdi. Qayta urinib ko'ring.`,
+              TELEGRAM_TOKEN
+            );
+          }
         } else {
           await sendTelegramMessage(
             chat_id,
@@ -417,15 +434,9 @@ Foydalanuvchi nomi: <b>${user?.username}</b>
           if (registered) {
             await createSession(supabase, registered.id, message.from.id, "idle");
 
-            const { data: user } = await supabase
-              .from("users")
-              .select("password_hash")
-              .eq("id", registered.id)
-              .maybeSingle();
-
             await sendTelegramMessage(
               chat_id,
-              `Salom ${first_name}! Ro'yxatdan muvaffaqiyatli o'tdingiz!\n\nFoydalanuvchi nomi: <b>${text}</b>\nParol: <b>${user?.password_hash}</b>\n\n/login - Login qilish\n/password - Parolni o'zgartirish`,
+              `Salom ${first_name}! Ro'yxatdan muvaffaqiyatli o'tdingiz!\n\nFoydalanuvchi nomi: <b>${registered.username}</b>\nParol: <b>${registered.password_hash}</b>\n\nSiz avtomatik tizimga kirgandingiz.`,
               TELEGRAM_TOKEN
             );
           } else {
@@ -436,16 +447,18 @@ Foydalanuvchi nomi: <b>${user?.username}</b>
             );
           }
         } else if (session.session_state === "awaiting_login_username") {
-          await createSession(supabase, session.user_id, message.from.id, "awaiting_login_password");
+          await updateSessionData(supabase, message.from.id, {
+            session_state: "awaiting_login_password",
+            awaiting_username: text,
+          });
 
-          const userData = { username: text };
           await sendTelegramMessage(
             chat_id,
             `Parolni kiriting:`,
             TELEGRAM_TOKEN
           );
         } else if (session.session_state === "awaiting_login_password") {
-          const auth = await authenticateUser(supabase, session.awaiting_username || text, text);
+          const auth = await authenticateUser(supabase, session.awaiting_username, text);
 
           if (auth) {
             await createSession(supabase, auth.id, message.from.id, "idle");
@@ -505,37 +518,6 @@ Foydalanuvchi nomi: <b>${user?.username}</b>
               `Xatolik yuz berdi. Qayta urinib ko'ring: /password`,
               TELEGRAM_TOKEN
             );
-          }
-        } else if (session.session_state === "awaiting_forgot_username") {
-          const user = await findUserByUsername(supabase, text);
-
-          if (!user) {
-            await sendTelegramMessage(
-              chat_id,
-              `Foydalanuvchi topilmadi. Qayta urinib ko'ring: /forgot`,
-              TELEGRAM_TOKEN
-            );
-
-            await createSession(supabase, session.user_id, message.from.id, "idle");
-          } else {
-            const newPassword = `pass_${Math.random().toString(36).substring(2, 15)}`;
-            const updated = await updatePassword(supabase, user.id, newPassword);
-
-            if (updated) {
-              await createSession(supabase, session.user_id, message.from.id, "idle");
-
-              await sendTelegramMessage(
-                chat_id,
-                `Parol muvaffaqiyatli yangilandi!\n\nFoydalanuvchi nomi: <b>${text}</b>\nYangi parol: <b>${newPassword}</b>`,
-                TELEGRAM_TOKEN
-              );
-            } else {
-              await sendTelegramMessage(
-                chat_id,
-                `Xatolik yuz berdi. Qayta urinib ko'ring: /forgot`,
-                TELEGRAM_TOKEN
-              );
-            }
           }
         } else {
           await sendTelegramMessage(
