@@ -96,6 +96,51 @@ async function getSession(
   }
 }
 
+async function updateSessionData(
+  supabase: any,
+  telegram_id: number,
+  data: Record<string, any>
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("user_sessions")
+      .update(data)
+      .eq("telegram_id", telegram_id);
+
+    if (error) {
+      console.error("Update session error:", error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error updating session:", error);
+    return false;
+  }
+}
+
+async function findUserByUsername(
+  supabase: any,
+  username: string
+): Promise<{ id: string; username: string } | null> {
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, username")
+      .eq("username", username)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error("Error finding user:", error);
+    return null;
+  }
+}
+
 async function registerUser(
   supabase: any,
   telegram_id: number,
@@ -265,6 +310,7 @@ Foydalanuvchi nomi: <b>${user?.username}</b>
 <b>Menyular:</b>
 /login - Login qilish
 /password - Parolni o'zgartirish
+/forgot - Parolni esidan chiqarish
 /profile - Profilni ko'rish`;
 
           await sendTelegramMessage(chat_id, menu, TELEGRAM_TOKEN);
@@ -337,6 +383,24 @@ Foydalanuvchi nomi: <b>${user?.username}</b>
             TELEGRAM_TOKEN
           );
         }
+      } else if (text === "/forgot") {
+        const session = await getSession(supabase, message.from.id);
+
+        if (session?.user_id) {
+          await createSession(supabase, session.user_id, message.from.id, "awaiting_forgot_username");
+
+          await sendTelegramMessage(
+            chat_id,
+            `Foydalanuvchi nomini kiriting:`,
+            TELEGRAM_TOKEN
+          );
+        } else {
+          await sendTelegramMessage(
+            chat_id,
+            `Avval /login orqali kirish kerak.`,
+            TELEGRAM_TOKEN
+          );
+        }
       } else {
         const session = await getSession(supabase, message.from.id);
 
@@ -388,7 +452,7 @@ Foydalanuvchi nomi: <b>${user?.username}</b>
 
             await sendTelegramMessage(
               chat_id,
-              `Salom! Muvaffaqiyatli kirdingiz.\n\n/login - Login qilish\n/password - Parolni o'zgartirish\n/profile - Profil`,
+              `Salom! Muvaffaqiyatli kirdingiz.\n\n/login - Login qilish\n/password - Parolni o'zgartirish\n/forgot - Parolni esidan chiqarish\n/profile - Profil`,
               TELEGRAM_TOKEN
             );
           } else {
@@ -441,6 +505,37 @@ Foydalanuvchi nomi: <b>${user?.username}</b>
               `Xatolik yuz berdi. Qayta urinib ko'ring: /password`,
               TELEGRAM_TOKEN
             );
+          }
+        } else if (session.session_state === "awaiting_forgot_username") {
+          const user = await findUserByUsername(supabase, text);
+
+          if (!user) {
+            await sendTelegramMessage(
+              chat_id,
+              `Foydalanuvchi topilmadi. Qayta urinib ko'ring: /forgot`,
+              TELEGRAM_TOKEN
+            );
+
+            await createSession(supabase, session.user_id, message.from.id, "idle");
+          } else {
+            const newPassword = `pass_${Math.random().toString(36).substring(2, 15)}`;
+            const updated = await updatePassword(supabase, user.id, newPassword);
+
+            if (updated) {
+              await createSession(supabase, session.user_id, message.from.id, "idle");
+
+              await sendTelegramMessage(
+                chat_id,
+                `Parol muvaffaqiyatli yangilandi!\n\nFoydalanuvchi nomi: <b>${text}</b>\nYangi parol: <b>${newPassword}</b>`,
+                TELEGRAM_TOKEN
+              );
+            } else {
+              await sendTelegramMessage(
+                chat_id,
+                `Xatolik yuz berdi. Qayta urinib ko'ring: /forgot`,
+                TELEGRAM_TOKEN
+              );
+            }
           }
         } else {
           await sendTelegramMessage(
