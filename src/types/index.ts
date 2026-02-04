@@ -12,6 +12,7 @@ export interface Test {
   duration_minutes: number;
   created_by: string;
   created_at: string;
+  image_url?: string;
 }
 
 export interface Question {

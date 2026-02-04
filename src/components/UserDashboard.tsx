@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Test, Question, TestResult } from '../types';
-import { BookOpen, Clock, Award, LogOut, Play, ChevronRight, Menu, X, Send, MessageCircle } from 'lucide-react';
+import { BookOpen, Clock, Award, LogOut, Play, ChevronRight } from 'lucide-react';
 
 export default function UserDashboard() {
   const { user, logout } = useAuth();
@@ -15,15 +15,6 @@ export default function UserDashboard() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [testStartTime, setTestStartTime] = useState<Date | null>(null);
   const [completedResult, setCompletedResult] = useState<{ score: number; total: number } | null>(null);
-  const [showCommandMenu, setShowCommandMenu] = useState(false);
-
-  const botCommands = [
-    { command: '/start', description: 'Menyni ko\'rish' },
-    { command: '/login', description: 'Login qilish' },
-    { command: '/password', description: 'Parolni o\'zgartirish' },
-    { command: '/forgot', description: 'Parolni esidan chiqarish' },
-    { command: '/profile', description: 'Profilni ko\'rish' },
-  ];
 
   useEffect(() => {
     loadTests();
@@ -268,53 +259,6 @@ export default function UserDashboard() {
           <h1 className="text-2xl font-bold text-gray-800">Test Platformasi</h1>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600">Foydalanuvchi: {user?.username}</span>
-            <div className="relative">
-              <button
-                onClick={() => setShowCommandMenu(!showCommandMenu)}
-                className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition"
-                title="Telegram bot komandalar"
-              >
-                <Menu className="w-5 h-5" />
-              </button>
-
-              {showCommandMenu && (
-                <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-xl z-50">
-                  <div className="p-4 border-b border-gray-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <MessageCircle className="w-5 h-5 text-blue-600" />
-                      <h3 className="font-bold text-gray-800">Telegram Bot Komandalar</h3>
-                    </div>
-                    <p className="text-sm text-gray-600">Botni ishlatish uchun quyidagi komandalardan foydalaning</p>
-                  </div>
-                  <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
-                    {botCommands.map((cmd, idx) => (
-                      <div key={idx} className="p-4 hover:bg-gray-50 transition">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1">
-                            <p className="font-mono text-sm font-semibold text-blue-600">{cmd.command}</p>
-                            <p className="text-sm text-gray-600 mt-1">{cmd.description}</p>
-                          </div>
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(cmd.command);
-                              setShowCommandMenu(false);
-                            }}
-                            className="p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition"
-                            title="Nusxalash"
-                          >
-                            <Send className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="p-3 bg-blue-50 border-t border-gray-200 text-xs text-gray-600">
-                    <p className="font-semibold mb-1">💡 Bot nomi:</p>
-                    <p className="font-mono text-blue-600">@YourBotName</p>
-                  </div>
-                </div>
-              )}
-            </div>
             <button
               onClick={logout}
               className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition"

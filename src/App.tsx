@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { useAuth } from './contexts/AuthContext';
+import HomePage from './components/HomePage';
 import LoginPage from './components/LoginPage';
 import AdminPanel from './components/AdminPanel';
 import UserDashboard from './components/UserDashboard';
 
 function App() {
   const { user, loading } = useAuth();
+  const [currentPage, setCurrentPage] = useState<'home' | 'login'>('home');
 
   if (loading) {
     return (
@@ -18,6 +21,9 @@ function App() {
   }
 
   if (!user) {
+    if (currentPage === 'home') {
+      return <HomePage onLoginClick={() => setCurrentPage('login')} />;
+    }
     return <LoginPage />;
   }
 

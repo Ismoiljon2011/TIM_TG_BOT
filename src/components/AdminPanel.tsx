@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Test, Question, TestResult } from '../types';
-import { Plus, Edit2, Trash2, LogOut, BookOpen, HelpCircle, BarChart3 } from 'lucide-react';
+import { Plus, Edit2, Trash2, LogOut, BookOpen, HelpCircle, BarChart3, Image, Sigma } from 'lucide-react';
 
 export default function AdminPanel() {
   const { user, logout } = useAuth();
@@ -11,15 +11,18 @@ export default function AdminPanel() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [showTestForm, setShowTestForm] = useState(false);
   const [showQuestionForm, setShowQuestionForm] = useState(false);
-  const [testForm, setTestForm] = useState({ title: '', description: '', duration_minutes: 30 });
+  const [testForm, setTestForm] = useState({ title: '', description: '', duration_minutes: 30, image_url: '' });
   const [questionForm, setQuestionForm] = useState({
     question_text: '',
     option_a: '',
     option_b: '',
     option_c: '',
     option_d: '',
-    correct_answer: 'a'
+    correct_answer: 'a',
+    has_math_symbols: false
   });
+
+  const mathSymbols = ['∑', '∫', '√', '∞', 'π', '±', '×', '÷', '≤', '≥', '≠', '≈', '∈', '∂', 'α', 'β', 'γ', 'δ', 'θ', 'λ'];
   const [error, setError] = useState<string>('');
   const [deleteConfirmTest, setDeleteConfirmTest] = useState<string | null>(null);
   const [deleteConfirmQuestion, setDeleteConfirmQuestion] = useState<string | null>(null);
@@ -59,9 +62,15 @@ export default function AdminPanel() {
     const { data } = await supabase
       .from('test_results')
       .select('*')
-      .eq('test_id', testId)
-      .order('completed_at', { ascending: false });
-    if (data) setTestResults(data);
+      .eq('test_id', testId);
+    if (data) {
+      const sorted = data.sort((a, b) => {
+        const scoreA = a.score / a.total_questions;
+        const scoreB = b.score / b.total_questions;
+        return scoreB - scoreA;
+      });
+      setTestResults(sorted);
+    }
   };
 
   const loadUsersMap = async () => {
@@ -225,6 +234,22 @@ export default function AdminPanel() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     required
                   />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <Image className="w-4 h-4 inline mr-2" />
+                      Rasm URL (ixtiyoriy)
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://example.com/image.jpg"
+                      value={testForm.image_url || ''}
+                      onChange={(e) => setTestForm({ ...testForm, image_url: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    {testForm.image_url && (
+                      <img src={testForm.image_url} alt="Preview" className="mt-2 h-24 object-cover rounded-lg" />
+                    )}
+                  </div>
                   <div className="flex gap-2">
                     <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
                       Saqlash
@@ -347,6 +372,39 @@ export default function AdminPanel() {
                         <option value="c">To'g'ri javob: C</option>
                         <option value="d">To'g'ri javob: D</option>
                       </select>
+                      <div className="p-3 bg-white rounded-lg border border-gray-200">
+                        <label className="flex items-center gap-2 font-medium text-gray-700 mb-3">
+                          <Sigma className="w-4 h-4" />
+                          Matematik simvollar (ixtiyoriy)
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {mathSymbols.map((symbol) => (
+                            <button
+                              key={symbol}
+                              type="button"
+                              onClick={() => {
+                                setQuestionForm({
+                                  ...questionForm,
+                                  question_text: questionForm.question_text + symbol,
+                                  has_math_symbols: true
+                                });
+                              }}
+                              className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-sm font-semibold transition"
+                            >
+                              {symbol}
+                            </button>
+                          ))}
+                        </div>
+                        <label className="flex items-center gap-2 mt-3">
+                          <input
+                            type="checkbox"
+                            checked={questionForm.has_math_symbols}
+                            onChange={(e) => setQuestionForm({ ...questionForm, has_math_symbols: e.target.checked })}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-sm text-gray-600">Bu savolda matematik simvollar bor</span>
+                        </label>
+                      </div>
                       <div className="flex gap-2">
                         <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
                           Saqlash
